@@ -196,7 +196,8 @@ class PaperBroker(Broker):
             self.min_sz = Decimal(meta["minSz"])
             self.tick_sz = Decimal(meta["tickSz"])
         else:
-            self.lot_sz = Decimal("0.000001")
+            # 对齐真实交易所的 BTC 最小精度（1e-8），减少离线演示的数量取整损失
+            self.lot_sz = Decimal("0.00000001")
             self.min_sz = Decimal("0.00001")
             self.tick_sz = Decimal("0.1")
         self.base_ccy, self.quote_ccy = inst_id.split("-")

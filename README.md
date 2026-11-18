@@ -53,7 +53,33 @@ docker compose up -d --build
 常用命令：`docker logs -f okx-grid-bot`（日志）、`docker restart okx-grid-bot`（重启）、
 `docker compose down`（彻底停止）。
 
-### 方式二：源码直跑
+### 方式二：Cloudflare Workers + Durable Objects（全球边缘，免费额度）
+
+`cloudflare/` 目录是同一套网格引擎的 Workers 原生实现：
+引擎状态存 Durable Object（SQLite），alarms 驱动周期性 tick，cron 每分钟兜底，
+断电/重启后 cron 自动拉起并恢复状态——「开机自启」的云端版。
+
+```bash
+cd cloudflare
+npx wrangler login               # 浏览器授权一次
+npx wrangler deploy              # 部署
+npx wrangler secret put UI_TOKEN # 设置控制台访问令牌（自定字符串）
+```
+
+- 访问地址：`https://ai-okx-grid-bot.<你的子域>.workers.dev`（**workers.dev 在大陆被墙**，
+  需绑自定义域名才能直连；命令行/海外网络可直接访问）
+- 首次部署后 1 分钟内（cron 触发）按 `AUTO_MODE`（默认 offline）自动连接并恢复运行；
+  也可在页面手动连接
+- 控制台需要输入 `UI_TOKEN` 令牌（保存在浏览器 localStorage）
+- demo/live 模式需配置 secrets：`npx wrangler secret put OKX_API_KEY / OKX_API_SECRET /
+  OKX_API_PASSPHRASE`
+- 免费额度足够 14 USDT 量级的机器人（约每 30 秒一次 tick 的 DO 时长消耗）
+- 已知差异：Workers 出口 IP 不固定，OKX 的 IP 白名单功能用不了；tick 间隔受
+  alarms 精度限制
+
+### 方式三：源码直跑
+
+### 方式三：源码直跑
 
 ```bash
 pip install -r requirements.txt

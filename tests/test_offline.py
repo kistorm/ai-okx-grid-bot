@@ -19,7 +19,7 @@ def q(v, unit):
 
 class StubBroker:
     """本地桩通道：手工喂价格路径，模拟成交与钱包。"""
-    lot_sz = Decimal("0.000001")
+    lot_sz = Decimal("0.00000001")
     min_sz = Decimal("0.00001")
     tick_sz = Decimal("0.1")
     base_ccy = "BTC"
