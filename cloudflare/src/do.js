@@ -55,7 +55,8 @@ export class GridDO {
   }
 
   async _ensureEngine() {
-    if (this.engine) return;
+    if (this.engine) { this._buildError = null; return; }   // 引擎已存在时清除脏的错误标记
+    this.log("info", "web", `尝试构建引擎 (saved=${!!this._savedEngineState})`);
     try {
       await this._buildEngine(this._savedBrokerState, this._savedEngineState);
       this._buildError = null;
@@ -110,7 +111,7 @@ export class GridDO {
       await this._ensureEngine();
       if (this._buildError) {
         // 引擎构建失败（多为 WAF 拦截），拉长间隔重试
-        this.log("warning", "web", "引擎尚未启动，等待下一轮重试");
+        this.log("warning", "web", `引擎尚未启动，等待下一轮重试 [engine=${this.engine ? "有" : "无"} buildError=${this._buildError}]`);
         await this.state.storage.setAlarm(Date.now() + Math.max(30000, this.config.intervalSec * 1000));
         return;
       }

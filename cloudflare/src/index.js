@@ -81,7 +81,7 @@ export default {
     }
     if (url.pathname === "/api/auto-connect") {
       // 手动触发开机自启逻辑（cron 兜底之外的主动入口）
-      const id = env.GRID.idFromName("bot-v3");
+      const id = env.GRID.idFromName("bot-v6");
       return env.GRID.get(id).fetch(request);
     }
     if (url.pathname === "/api/kill-instance") {
@@ -93,13 +93,13 @@ export default {
         new Request("https://do.internal/api/disconnect", { method: "POST" }));
     }
     // 其余 /api/* 转发给 GridDO（同实例单机器人）
-    const id = env.GRID.idFromName("bot-v3");
+    const id = env.GRID.idFromName("bot-v6");
     return env.GRID.get(id).fetch(request);
   },
 
   /** cron 兜底：每分钟确保 alarm 在排期；首次部署按 AUTO_MODE 自动连接。 */
   async scheduled(controller, env, ctx) {
-    const id = env.GRID.idFromName("bot-v3");
+    const id = env.GRID.idFromName("bot-v6");
     const stub = env.GRID.get(id);
     ctx.waitUntil(stub.fetch(
       new Request("https://do.internal/internal/ensure-alarm", { method: "POST" })));

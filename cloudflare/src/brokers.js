@@ -59,11 +59,16 @@ export class OkxBroker extends Broker {
 
   async snapshot() {
     try {
+      // 带上 ccy 参数：区域网关变体对无参数请求会返回空 details
       const out = {};
-      const data = await this.c.balance();
+      const ccyList = `${this.quoteCcy},${this.baseCcy}`;
+      const data = await this.c.balance(ccyList);
       for (const d of data[0]?.details ?? []) {
         const avail = parseFloat(d.availBal || d.availEq || 0);
         out[d.ccy] = { avail, total: avail + parseFloat(d.frozenBal || 0) };
+      }
+      for (const ccy of [this.quoteCcy, this.baseCcy]) {
+        if (!out[ccy]) out[ccy] = { avail: 0, total: 0 };
       }
       this._lastSnap = out;
       return out;
