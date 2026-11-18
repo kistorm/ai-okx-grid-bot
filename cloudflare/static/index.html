@@ -256,7 +256,7 @@ function renderMarket(list, err){
     return;
   }
   bar.innerHTML = list.map(m => {
-    const chgTxt = (m.chg === null || m.chg === undefined) ? '离线演示' : ((m.chg >= 0 ? '+' : '') + Number(m.chg).toFixed(2) + '%');
+    const chgTxt = (m.chg === null || m.chg === undefined) ? '引擎价' : ((m.chg >= 0 ? '+' : '') + Number(m.chg).toFixed(2) + '%');
     const cls = (m.chg === null || m.chg === undefined) ? '' : (m.chg >= 0 ? 'up' : 'down');
     return `<div class="mcard"><div class="mname">${esc(m.inst)}</div><div class="mpx">${fmt(m.last)}</div><div class="mchg ${cls}">${chgTxt}</div></div>`;
   }).join('');

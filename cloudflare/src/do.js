@@ -126,6 +126,7 @@ export class GridDO {
         this.engine.lastPx = await this.broker.price();
       }
       const s = this.engine.summary();
+      if (s.balances && Object.keys(s.balances).length) this._lastGoodBalances = s.balances;
       this.lastSummary = s;
       this._trackerUpdate(s, this.paused, this.engine.st.halted);
     } catch (e) {
@@ -396,7 +397,7 @@ export class GridDO {
       paused: this.paused,
       market_error: "",
       summary: this.lastSummary ?? {},
-      balances: (this.lastSummary ?? {}).balances ?? {},
+      balances: this._lastGoodBalances ?? (this.lastSummary ?? {}).balances ?? {},
       quote_ccy: this.broker?.quoteCcy ?? "USDT",
       base_ccy: this.broker?.baseCcy ?? "BTC",
       halted: false, halted_reason: "", grid: null, market: null,
@@ -405,8 +406,9 @@ export class GridDO {
       s.halted = eng.st.halted;
       s.halted_reason = eng.st.halted_reason;
       s.grid = this._gridInfo(eng);
-      if (this.config.mode === "offline" && (this.lastSummary ?? {}).px) {
-        s.market = [{ inst: eng.cfg.instId, last: this.lastSummary.px, chg: null }];
+      if ((this.lastSummary ?? {}).px) {
+        // 行情接口被 OKX 边缘拦截时，顶部直接用引擎自身获取的最新价
+        s.market = s.market || [{ inst: eng.cfg.instId, last: this.lastSummary.px, chg: null }];
       }
     }
     return s;
