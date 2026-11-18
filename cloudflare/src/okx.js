@@ -4,8 +4,15 @@
  * 签名规则与官方文档一致:
  *   prehash = timestamp + METHOD + requestPath [+ query] [+ body]
  *   OK-ACCESS-SIGN = base64(hmac_sha256(secret, prehash))
+ *
+ * 网络适配：
+ *  - 带浏览器 UA（OKX 边缘对无 UA 的数据中心请求会返回 WAF 参数错误）
+ *  - 主域名 www.okx.com 失败时自动回退备用域名 aws.okx.com
  */
 const enc = new TextEncoder();
+
+const HOSTS = ["https://www.okx.com", "https://aws.okx.com"];
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 
 export class OkxApiError extends Error {
   constructor(code, msg, data) {
@@ -32,6 +39,8 @@ export function createOkxClient({
   timeoutMs = 15000,
   log = () => {},
 } = {}) {
+  const hosts = [baseUrl, ...HOSTS.filter((h) => h !== baseUrl)];
+
   async function sign(timestamp, method, requestPath, body) {
     const key = await crypto.subtle.importKey(
       "raw", enc.encode(secretKey),
@@ -47,20 +56,28 @@ export function createOkxClient({
     if (params) requestPath += "?" + new URLSearchParams(params).toString();
     const body = data ? JSON.stringify(data) : "";
     const timestamp = new Date().toISOString(); // 毫秒级 ISO，与官方要求一致
-    const headers = { "Content-Type": "application/json" };
-    if (apiKey) {
-      headers["OK-ACCESS-KEY"] = apiKey;
-      headers["OK-ACCESS-SIGN"] = await sign(timestamp, method, requestPath, body);
-      headers["OK-ACCESS-TIMESTAMP"] = timestamp;
-      headers["OK-ACCESS-PASSPHRASE"] = passphrase;
-    }
-    if (simulated) headers["x-simulated-trading"] = "1";
-    // 下单类 POST 不重试（超时后状态未知，重试可能重复下单）；GET 重试 2 次
-    const attempts = method === "POST" && data ? 1 : 3;
+    // 下单类 POST 不重试（超时后状态未知，重试可能重复下单），且只打主域名；
+    // 其余 GET 依次尝试主备域名：网络失败与部分 OKX 业务错误（如区域网关的
+    // 参数差异）都换下一个域名再试，最后一个域名的错误才抛出。
+    const attempts = method === "POST" && data ? hosts.slice(0, 1) : hosts;
+    let lastApiErr = null;
     let lastErr = null;
-    for (let i = 0; i < attempts; i++) {
+    for (let i = 0; i < attempts.length; i++) {
+      const host = attempts[i];
+      const headers = {
+        "Content-Type": "application/json",
+        "User-Agent": UA,
+        Accept: "application/json",
+      };
+      if (apiKey) {
+        headers["OK-ACCESS-KEY"] = apiKey;
+        headers["OK-ACCESS-SIGN"] = await sign(timestamp, method, requestPath, body);
+        headers["OK-ACCESS-TIMESTAMP"] = timestamp;
+        headers["OK-ACCESS-PASSPHRASE"] = passphrase;
+      }
+      if (simulated) headers["x-simulated-trading"] = "1";
       try {
-        const resp = await fetch(baseUrl + requestPath, {
+        const resp = await fetch(host + requestPath, {
           method,
           headers,
           body: data ? body : undefined,
@@ -68,22 +85,32 @@ export function createOkxClient({
         });
         const payload = await resp.json();
         if (payload.code !== "0") {
-          throw new OkxApiError(payload.code, payload.msg, payload.data);
+          const err = new OkxApiError(payload.code, `${payload.msg} [${host}]`, payload.data);
+          if (method === "POST" && data) throw err;
+          lastApiErr = err;
+          continue;
         }
         return payload.data;
       } catch (e) {
-        if (e instanceof OkxApiError) throw e;
+        if (e instanceof OkxApiError && method === "POST" && data) throw e;
         lastErr = e;
-        log("warning", `请求失败(第${i + 1}/${attempts}次) ${method} ${requestPath}: ${e}`);
-        await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+        log("warning", `请求失败(第${i + 1}/${attempts.length}次) ${method} ${requestPath}: ${e.message}`);
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
       }
     }
-    throw lastErr;
+    throw lastApiErr ?? lastErr;
   }
 
   return {
-    tickers: async (instId) =>
-      (await request("GET", "/api/v5/market/tickers", { instId }))[0],
+    /** 行情查询：CF 出口命中的 OKX 网关变体要求 instType 且忽略 instId
+     *  （返回全 SPOT 列表，需自行查找目标交易对）；标准 REST 网关同样支持
+     *  instType 形态。统一用 instType=SPOT 拉列表后查找。 */
+    tickers: async (instId) => {
+      const data = await request("GET", "/api/v5/market/tickers", { instType: "SPOT" });
+      const row = (data ?? []).find((t) => t.instId === instId);
+      if (!row) throw new Error(`行情列表中未找到 ${instId}`);
+      return row;
+    },
     instruments: async (instType = "SPOT", instId = null) => {
       const params = { instType };
       if (instId) params.instId = instId;

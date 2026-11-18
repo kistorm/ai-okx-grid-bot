@@ -46,12 +46,22 @@ export class GridDO {
     this.tracker.load(saved.get("review") ?? { days: {}, reviews: {} });
     this.pendingReconfig = saved.get("pendingReconfig") ?? null;
     this.pendingReset = saved.get("pendingReset") ?? false;
-    const engineState = saved.get("engineState");
-    const brokerState = saved.get("brokerState");
-    if (this.config && !this.stopped) {
-      await this._buildEngine(brokerState, engineState);
-    }
+    this._savedEngineState = saved.get("engineState") ?? null;
+    this._savedBrokerState = saved.get("brokerState") ?? null;
     this.loaded = true;
+    // 引擎构建失败可重试（如 OKX WAF 间歇拦截 instruments 拉取），不阻塞 alarm 链
+    await this._ensureEngine();
+  }
+
+  async _ensureEngine() {
+    if (this.engine) return;
+    try {
+      await this._buildEngine(this._savedBrokerState, this._savedEngineState);
+      this._buildError = null;
+    } catch (e) {
+      this._buildError = String(e.message || e);
+      this.log("warning", "web", `引擎启动失败（稍后自动重试）: ${this._buildError}`);
+    }
   }
 
   log(level, src, msg) {
@@ -90,11 +100,19 @@ export class GridDO {
     }
   }
 
-  /** runtime alarm：一轮采样/tick，然后排下一次。 */
+  /** runtime alarm：一轮采样/tick，然后排下一次。任何失败都不中断排期（自愈）。 */
   async alarm() {
-    await this.init();
-    if (this.stopped || !this.config) return;
+    try { await this.init(); }
+    catch (e) { this.log("error", "web", `初始化失败（下一轮重试）: ${e.message}`); }
+    if (!this.config || this.stopped) return;
     try {
+      await this._ensureEngine();
+      if (this._buildError) {
+        // 引擎构建失败（多为 WAF 拦截），拉长间隔重试
+        this.log("warning", "web", "引擎尚未启动，等待下一轮重试");
+        await this.state.storage.setAlarm(Date.now() + Math.max(30000, this.config.intervalSec * 1000));
+        return;
+      }
       if (this.pendingReconfig) {
         await this._doReconfig();
       } else if (this.pendingReset) {
@@ -112,9 +130,15 @@ export class GridDO {
     } catch (e) {
       this.log("error", "web", `引擎 tick 异常: ${e.message}`);
     }
-    await this._persist();
+    try { await this._persist(); }
+    catch (e) { this.log("error", "web", `状态保存失败: ${e.message}`); }
     if (!this.stopped) {
-      await this.state.storage.setAlarm(Date.now() + this.config.intervalSec * 1000);
+      try {
+        await this.state.storage.setAlarm(Date.now() + this.config.intervalSec * 1000);
+      } catch (e) {
+        this.log("error", "web", `alarm 排期失败: ${e.message}`);
+        try { await this.state.storage.setAlarm(Date.now() + 30000); } catch { /* 忽略 */ }
+      }
     }
   }
 
@@ -223,10 +247,13 @@ export class GridDO {
     };
     if (mode === "offline") cfg.intervalSec = Math.min(cfg.intervalSec, 5);
     let engineState = null, brokerState = null;
-    try {
-      engineState = (await this.state.storage.get("engineState")) ?? null;
-      brokerState = (await this.state.storage.get("brokerState")) ?? null;
-    } catch { /* 忽略 */ }
+    if (!body.fresh) {
+      // 默认恢复历史状态；传 fresh=true 则忽略旧状态全新开始（如行情异常污染后）
+      try {
+        engineState = (await this.state.storage.get("engineState")) ?? null;
+        brokerState = (await this.state.storage.get("brokerState")) ?? null;
+      } catch { /* 忽略 */ }
+    }
     // 校验 + 构建引擎（可能抛 GridConfigError）
     const log = (level, msg) => this.log(level, "broker", msg);
     let engine;

@@ -32,21 +32,29 @@ async function fetchMarket() {
   const data = [];
   let error = "";
   for (const inst of MARKET_INSTS) {
-    try {
-      const resp = await fetch(
-        `https://www.okx.com/api/v5/market/tickers?instId=${inst}`,
-        { signal: AbortSignal.timeout(8000) });
-      const p = await resp.json();
-      if (p.code === "0") {
-        const t = p.data[0];
-        const last = parseFloat(t.last);
-        const open = parseFloat(t.open24h || 0);
-        const chg = open > 0 ? Math.round(((last - open) / open) * 10000) / 100 : 0;
-        data.push({ inst, last, chg });
+    let lastErr = "";
+    for (const host of ["https://www.okx.com", "https://aws.okx.com"]) {
+      try {
+        const resp = await fetch(
+          `${host}/api/v5/market/tickers?instId=${inst}`,
+          { signal: AbortSignal.timeout(8000),
+            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0", Accept: "application/json" } });
+        const p = await resp.json();
+        if (p.code === "0") {
+          const t = p.data[0];
+          const last = parseFloat(t.last);
+          const open = parseFloat(t.open24h || 0);
+          const chg = open > 0 ? Math.round(((last - open) / open) * 10000) / 100 : 0;
+          data.push({ inst, last, chg });
+          lastErr = "";
+          break;
+        }
+        lastErr = `OKX ${p.code}: ${p.msg}`;
+      } catch (e) {
+        lastErr = `${e.name || "Error"}`;
       }
-    } catch (e) {
-      error = e.name || "Error";
     }
+    if (lastErr) error = lastErr;
   }
   if (data.length) marketCache = { t: Date.now(), data, error: "" };
   else marketCache.error = error || "行情获取失败";
@@ -74,17 +82,25 @@ export default {
     }
     if (url.pathname === "/api/auto-connect") {
       // 手动触发开机自启逻辑（cron 兜底之外的主动入口）
-      const id = env.GRID.idFromName("bot");
+      const id = env.GRID.idFromName("bot-v3");
       return env.GRID.get(id).fetch(request);
     }
+    if (url.pathname === "/api/kill-instance") {
+      // 运维：断开某个历史实例（停止其 alarm 链）。用法 /api/kill-instance?name=bot
+      const name = url.searchParams.get("name") || "";
+      if (!/^[a-zA-Z0-9._-]+$/.test(name)) return json({ error: "name 非法" }, 400);
+      const id = env.GRID.idFromName(name);
+      return env.GRID.get(id).fetch(
+        new Request("https://do.internal/api/disconnect", { method: "POST" }));
+    }
     // 其余 /api/* 转发给 GridDO（同实例单机器人）
-    const id = env.GRID.idFromName("bot");
+    const id = env.GRID.idFromName("bot-v3");
     return env.GRID.get(id).fetch(request);
   },
 
   /** cron 兜底：每分钟确保 alarm 在排期；首次部署按 AUTO_MODE 自动连接。 */
   async scheduled(controller, env, ctx) {
-    const id = env.GRID.idFromName("bot");
+    const id = env.GRID.idFromName("bot-v3");
     const stub = env.GRID.get(id);
     ctx.waitUntil(stub.fetch(
       new Request("https://do.internal/internal/ensure-alarm", { method: "POST" })));
