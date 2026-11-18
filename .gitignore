@@ -1,0 +1,11 @@
+# 运行时数据与密钥，绝不提交
+state/
+state_test*/
+.env
+bot.log
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/

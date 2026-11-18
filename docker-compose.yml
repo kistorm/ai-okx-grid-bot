@@ -1,0 +1,30 @@
+services:
+  okx-grid-bot:
+    build: .
+    image: okx-grid-bot:latest
+    container_name: okx-grid-bot
+    # unless-stopped：崩溃/重启机器都会自动拉起；只有手动 docker stop 才不会重启
+    restart: unless-stopped
+    # 只发布到宿主机 127.0.0.1：局域网内其他设备访问不到，安全口径与直跑一致
+    ports:
+      - "127.0.0.1:8790:8790"
+    environment:
+      TZ: Asia/Shanghai
+      # 开机自动连接的模式：offline=离线演示 dry=纸面模拟 demo=欧易模拟盘 live=实盘
+      # 留空则不自动连接，需要打开页面手动连接。demo/live 必须在 .env 里配 OKX 三个凭据
+      AUTO_MODE: ${AUTO_MODE:-offline}
+      OKX_API_KEY: ${OKX_API_KEY:-}
+      OKX_API_SECRET: ${OKX_API_SECRET:-}
+      OKX_API_PASSPHRASE: ${OKX_API_PASSPHRASE:-}
+      AUTO_INST: ${AUTO_INST:-BTC-USDT}
+      AUTO_UPPER: ${AUTO_UPPER:-70000}
+      AUTO_LOWER: ${AUTO_LOWER:-58000}
+      AUTO_GRIDS: ${AUTO_GRIDS:-8}
+      AUTO_BUDGET: ${AUTO_BUDGET:-12}
+      AUTO_INTERVAL: ${AUTO_INTERVAL:-30}
+      AUTO_BREAKDOWN_ACTION: ${AUTO_BREAKDOWN_ACTION:-stop_loss}
+      AUTO_PAPER_USDT: ${AUTO_PAPER_USDT:-14}
+    volumes:
+      # 网格状态与复盘历史持久化到宿主机，容器重建不丢数据
+      - ./state:/app/state
+    user: "1000:1000"
