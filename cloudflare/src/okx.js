@@ -117,6 +117,9 @@ export function createOkxClient({
       return request("GET", "/api/v5/public/instruments", params);
     },
     balance: async () => request("GET", "/api/v5/account/balance", null),
+    // 资金账户余额（资产账户），用于诊断“钱在哪”
+    fundingBalances: async (ccy = null) =>
+      request("GET", "/api/v5/asset/balances", ccy ? { ccy } : null),
     placeOrder: async (instId, side, ordType, sz, px = null, tdMode = "cash") => {
       const body = { instId, tdMode, side, ordType, sz };
       if (px !== null) body.px = px;

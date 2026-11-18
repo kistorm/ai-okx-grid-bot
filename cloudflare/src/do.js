@@ -9,6 +9,7 @@
 import { GridEngine, validateConfig } from "./grid.js";
 import { DailyTracker, buildReview, shanghaiTime } from "./review.js";
 import { makeBroker } from "./brokers.js";
+import { createOkxClient } from "./okx.js";
 
 const MODE_LABELS = { dry: "纸面模拟", offline: "离线演示", demo: "欧易模拟盘", live: "实盘" };
 const NEED_KEYS = ["demo", "live"];
@@ -246,6 +247,23 @@ export class GridDO {
       paperUsdt: Number(body.paper_usdt ?? 14),
     };
     if (mode === "offline") cfg.intervalSec = Math.min(cfg.intervalSec, 5);
+    // 清理交易所上可能残留的孤儿挂单（模式切换/实例重建后，旧通道的挂单不再被管理）
+    if (this.env.OKX_API_KEY && this.env.OKX_API_SECRET && this.env.OKX_API_PASSPHRASE) {
+      try {
+        const cleanup = createOkxClient({
+          apiKey: this.env.OKX_API_KEY, secretKey: this.env.OKX_API_SECRET,
+          passphrase: this.env.OKX_API_PASSPHRASE, simulated: mode === "demo",
+          log: (l, m) => this.log(l, "broker", m),
+        });
+        let n = 0;
+        for (const o of await cleanup.pendingOrders(cfg.instId)) {
+          try { await cleanup.cancelOrder(cfg.instId, o.ordId); n += 1; } catch { /* 忽略单笔失败 */ }
+        }
+        if (n > 0) this.log("info", "web", `已清理交易所残留挂单 ${n} 笔`);
+      } catch (e) {
+        this.log("warning", "web", `残留挂单清理失败（不阻断连接）: ${e.message}`);
+      }
+    }
     let engineState = null, brokerState = null;
     if (!body.fresh) {
       // 默认恢复历史状态；传 fresh=true 则忽略旧状态全新开始（如行情异常污染后）
@@ -419,6 +437,20 @@ export class GridDO {
         }
         case "/api/review":
           return json(this.apiReview());
+        case "/api/debug-balances": {
+          // 临时诊断：对比交易账户与资金账户的 USDT
+          try {
+            if (!this.broker?.c) return json({ error: "当前通道无 OKX 客户端" });
+            const trade = await this.broker.c.balance("USDT");
+            let funding = null;
+            try { funding = await this.broker.c.fundingBalances("USDT"); } catch (e) {
+              funding = [{ ccy: "USDT", err: e.message }];
+            }
+            return json({ trade, funding });
+          } catch (e) {
+            return json({ error: e.message });
+          }
+        }
         case "/api/connect":
           return json(await this.apiConnect(body));
         case "/api/disconnect":
