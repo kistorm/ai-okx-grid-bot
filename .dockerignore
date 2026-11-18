@@ -1,0 +1,9 @@
+state/
+__pycache__/
+**/__pycache__/
+*.pyc
+bot.log
+.env
+.git/
+state_test/
+state_test*/
