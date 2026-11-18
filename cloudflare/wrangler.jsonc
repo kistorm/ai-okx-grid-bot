@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-okx-grid-bot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./static",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "GRID", "class_name": "GridDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GridDO"] }],
+  "triggers": { "crons": ["* * * * *"] },
+  // 非敏感变量直接提交；OKX 凭据用 `npx wrangler secret put`，绝不写进本文件
+  "vars": {
+    "AUTO_MODE": "offline",
+    "AUTO_INST": "BTC-USDT",
+    "AUTO_UPPER": "70000",
+    "AUTO_LOWER": "58000",
+    "AUTO_GRIDS": "8",
+    "AUTO_BUDGET": "12",
+    "AUTO_INTERVAL": "30"
+  }
+}
