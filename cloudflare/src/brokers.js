@@ -58,13 +58,20 @@ export class OkxBroker extends Broker {
   }
 
   async snapshot() {
-    const out = {};
-    const data = await this.c.balance();
-    for (const d of data[0]?.details ?? []) {
-      const avail = parseFloat(d.availBal || d.availEq || 0);
-      out[d.ccy] = { avail, total: avail + parseFloat(d.frozenBal || 0) };
+    try {
+      const out = {};
+      const data = await this.c.balance();
+      for (const d of data[0]?.details ?? []) {
+        const avail = parseFloat(d.availBal || d.availEq || 0);
+        out[d.ccy] = { avail, total: avail + parseFloat(d.frozenBal || 0) };
+      }
+      this._lastSnap = out;
+      return out;
+    } catch (e) {
+      // WAF/限流拦截时回退到最近一次成功快照（面板显示用；下单路径不受影响）
+      this.log("warning", `余额查询失败，使用最近成功快照: ${e.message}`);
+      return this._lastSnap ?? {};
     }
-    return out;
   }
 
   async placeLimit(side, px, sz) {
