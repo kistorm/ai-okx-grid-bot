@@ -83,10 +83,14 @@ class LiveBroker(Broker):
         return float(self.c.tickers(self.inst_id)["last"])
 
     def snapshot(self) -> dict:
+        # 带 ccy 参数：部分区域网关对无参数的余额请求返回空 details
         out = {}
-        for d in self.c.balance()[0].get("details", []):
+        ccy_list = f"{self.quote_ccy},{self.base_ccy}"
+        for d in self.c.balance(ccy_list)[0].get("details", []):
             avail = float(d.get("availBal") or d.get("availEq") or 0)
             out[d["ccy"]] = {"avail": avail, "total": avail + float(d.get("frozenBal") or 0)}
+        for ccy in (self.quote_ccy, self.base_ccy):
+            out.setdefault(ccy, {"avail": 0, "total": 0})
         return out
 
     def place_limit(self, side: str, px: float, sz: float):

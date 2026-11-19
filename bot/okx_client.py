@@ -18,6 +18,11 @@ import requests
 
 log = logging.getLogger("okx")
 
+# 主备域名：CF/部分区域出口会命中要求 instType 的网页网关变体，失败时自动换备用域名
+HOSTS = ["https://www.okx.com", "https://aws.okx.com"]
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+
 
 class OkxApiError(RuntimeError):
     """OKX 返回 code != '0' 时抛出。"""
@@ -51,7 +56,8 @@ class OkxClient:
         return base64.b64encode(mac.digest()).decode()
 
     def _headers(self, method: str, request_path: str, body: str) -> dict:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "User-Agent": UA,
+                   "Accept": "application/json"}
         if self.api_key:  # 公共行情接口无需鉴权头
             ts = self._timestamp()
             headers.update({
@@ -70,33 +76,49 @@ class OkxClient:
         if params:
             request_path = f"{path}?{urlencode(params)}"
         body = json.dumps(data, separators=(",", ":")) if data is not None else ""
-        url = self.base_url + request_path
-        # 下单类 POST 绝不自动重试（超时后状态未知，重试可能造成重复下单）
-        attempts = 1 if (method == "POST" and data is not None) else 3
+        # 下单类 POST 绝不重试（超时后状态未知，重试可能造成重复下单），且只打主域名；
+        # 其余 GET 依次尝试主备域名：网络失败与部分区域网关的业务错误都换域名再试
+        # GET 在主备域名间轮询两轮（4 次尝试），提高间歇性拦截下单轮成功率
+        attempts = [self.base_url] if (method == "POST" and data is not None) else HOSTS * 2
         last_exc = None
-        for i in range(attempts):
+        last_api_err = None
+        for i, host in enumerate(attempts):
             try:
                 resp = self.session.request(
-                    method, url,
+                    method, host + request_path,
                     headers=self._headers(method, request_path, body),
                     data=body if data is not None else None,
                     timeout=self.timeout,
                 )
                 payload = resp.json()
                 if payload.get("code") != "0":
-                    raise OkxApiError(payload.get("code"), payload.get("msg"), payload.get("data"))
+                    # 部分区域网关的业务错误（如 50014）换下一个域名重试，最后一个才抛出
+                    err = OkxApiError(payload.get("code"),
+                                      f"{payload.get('msg')} [{host}]", payload.get("data"))
+                    if method == "POST" and data is not None:
+                        raise err
+                    last_api_err = err
+                    continue
                 return payload.get("data")
             except OkxApiError:
                 raise
             except (requests.RequestException, ValueError) as e:
                 last_exc = e
-                log.warning("请求失败(第%d/%d次) %s %s: %s", i + 1, attempts, method, request_path, e)
+                log.warning("请求失败(第%d/%d次) %s %s: %s", i + 1, len(attempts), method, request_path, e)
                 time.sleep(0.8 * (i + 1))
+        if last_api_err:
+            raise last_api_err
         raise last_exc
 
     # ---------- 公共行情 ----------
     def tickers(self, inst_id: str) -> dict:
-        return self._request("GET", "/api/v5/market/tickers", {"instId": inst_id})[0]
+        """行情查询：部分区域网关要求 instType 且忽略 instId（返回全 SPOT 列表），
+        标准网关同样支持 instType 形态——统一拉列表后查找目标交易对。"""
+        data = self._request("GET", "/api/v5/market/tickers", {"instType": "SPOT"})
+        for t in data or []:
+            if t.get("instId") == inst_id:
+                return t
+        raise OkxApiError("1", f"行情列表中未找到 {inst_id}", data)
 
     def instruments(self, inst_type: str = "SPOT", inst_id: str = None) -> list:
         params = {"instType": inst_type}

@@ -24,6 +24,13 @@ services:
       AUTO_INTERVAL: ${AUTO_INTERVAL:-30}
       AUTO_BREAKDOWN_ACTION: ${AUTO_BREAKDOWN_ACTION:-stop_loss}
       AUTO_PAPER_USDT: ${AUTO_PAPER_USDT:-14}
+      # 本机实盘：OKX 请求经宿主机代理出去（容器内用 host.docker.internal 访问宿主机）
+      HTTPS_PROXY: http://host.docker.internal:7890
+      HTTP_PROXY: http://host.docker.internal:7890
+      NO_PROXY: localhost,127.0.0.1
+    extra_hosts:
+      # Linux 上把 host.docker.internal 指到宿主机网关
+      - "host.docker.internal:host-gateway"
     volumes:
       # 网格状态与复盘历史持久化到宿主机，容器重建不丢数据
       - ./state:/app/state
