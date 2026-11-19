@@ -151,22 +151,28 @@ export class GridEngine {
     const st = this.st;
     let budgetLeft = this.cfg.budget - this._committed();
     let hitFull = false;
+    let placedThisTick = 0;               // 每轮最多新挂 2 单：共享出口 IP 下突发下单容易被限流
     for (let i = 0; i < st.levels.length; i++) {
       const lv = st.levels[i];
       if (i in st.buys || lv >= px) continue;
       if (budgetLeft < st.per_grid_quote - 1e-9) { hitFull = true; break; }
+      if (placedThisTick >= 1) break;     // 剩余档位下一轮继续，渐进式铺满
       const oid = await this.broker.placeLimit("buy", lv, st.per_grid_quote / lv);
       if (oid) {
         st.buys[i] = oid;
         budgetLeft -= st.per_grid_quote;
+        placedThisTick += 1;
         this._seedFullLogged = false;
         this._seedFailLogged = false;
+        // 共享出口 IP 下连续下单会触发 OKX 突发限流，每单间隔 1.5 秒
+        await new Promise((r) => setTimeout(r, 1500));
       } else {
+        // 失败档位跳过（下一轮重试），不中断其他档位的铺网
         if (!this._seedFailLogged) {
-          this.log("warning", `第${i}档买单挂单失败（预算/余额不足），本轮铺网中止，条件恢复后自动重试`);
+          this.log("warning", `第${i}档买单挂单失败（预算/余额不足），跳过该档稍后重试`);
           this._seedFailLogged = true;
         }
-        break;
+        continue;
       }
     }
     if (hitFull) {

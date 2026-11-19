@@ -36,7 +36,7 @@ export function createOkxClient({
   passphrase = "",
   simulated = false,
   baseUrl = "https://www.okx.com",
-  timeoutMs = 15000,
+  timeoutMs = 6000,
   log = () => {},
 } = {}) {
   const hosts = [baseUrl, ...HOSTS.filter((h) => h !== baseUrl)];
@@ -85,7 +85,12 @@ export function createOkxClient({
         });
         const payload = await resp.json();
         if (payload.code !== "0") {
-          const err = new OkxApiError(payload.code, `${payload.msg} [${host}]`, payload.data);
+          // code=1 时真实原因在 data[0].sCode/sMsg（如余额不足/参数错误），挖出来便于诊断
+          const inner = (payload.data ?? [])[0];
+          const detail = inner?.sMsg
+            ? `${payload.msg}（真实原因 ${inner.sCode}: ${inner.sMsg}）[${host}]`
+            : `${payload.msg} [${host}]`;
+          const err = new OkxApiError(payload.code, detail, payload.data);
           if (method === "POST" && data) throw err;
           lastApiErr = err;
           continue;

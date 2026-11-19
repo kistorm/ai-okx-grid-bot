@@ -20,6 +20,6 @@
     "AUTO_LOWER": "58000",
     "AUTO_GRIDS": "8",
     "AUTO_BUDGET": "12",
-    "AUTO_INTERVAL": "30"
+    "AUTO_INTERVAL": "60"
   }
 }

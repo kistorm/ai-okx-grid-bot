@@ -546,9 +546,9 @@ setInterval(async () => {
 }, 60000);
 
 /* ---------- 轮询 ---------- */
-setInterval(pollMarket, 5000);
-setInterval(pollState, 2000);
-setInterval(pollEvents, 2000);
+setInterval(pollMarket, 15000);
+setInterval(pollState, 5000);
+setInterval(pollEvents, 5000);
 pollState(); pollMarket(); pollEvents();
 window.addEventListener('resize', drawSpark);
 </script>
