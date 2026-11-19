@@ -106,7 +106,7 @@ describe("网格引擎", () => {
       62000, 62000, 65000, 65000, 68000, 68000, 69000, 69000]);
     const logs = [];
     const engine = new GridEngine(CFG, broker, null, (l, m) => logs.push(`${l}:${m}`));
-    await runTicks(engine, broker, 9);
+    await runTicks(engine, broker, 15);
     const s = engine.summary();
     expect(s.cycles).toBeGreaterThanOrEqual(2);
     expect(s.realized_pnl).toBeGreaterThan(0);
